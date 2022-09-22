@@ -112,7 +112,7 @@ if __name__ == "__main__":
 
     opts = parser.parse_args()
 
-    assert opts.filename is None or (len(opts.problems) == 1 and len(opts.graph_sizes) == 1), \
+    assert opts.filename is None or (opts.problem != "all" and len(opts.graph_sizes) == 1), \
         "Can only specify filename when generating a single dataset"
 
     distributions_per_problem = {

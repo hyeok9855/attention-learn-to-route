@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.autograd import Variable
 import math
 import numpy as np
+from utils.functions import sample_many
 
 
 class Encoder(nn.Module):
@@ -291,7 +292,7 @@ class PointerNetwork(nn.Module):
         self.embedding = nn.Parameter(torch.FloatTensor(self.input_dim, embedding_dim))
         self.embedding.data.uniform_(-std, std)
 
-    def set_decode_type(self, decode_type):
+    def set_decode_type(self, decode_type, temp=None):
         self.decoder.decode_type = decode_type
 
     def forward(self, inputs, eval_tours=None, return_pi=False):
@@ -351,3 +352,27 @@ class PointerNetwork(nn.Module):
                                                                  eval_tours)
 
         return pointer_probs, input_idxs
+    
+    def sample_many(self, input, batch_rep=1, iter_rep=1):
+        """
+        :param input: (batch_size, graph_size, node_dim) input node features
+        :return:
+        """
+        # Bit ugly but we need to pass the embeddings as well.
+        # Making a tuple will not work with the problem.get_cost function
+
+        def input_embedding(inputs, embedding_matrix):
+            batch_size, graph_size, input_dim = inputs.size()
+
+            embedded_inputs = torch.mm(
+                inputs.transpose(0, 1).contiguous().view(-1, input_dim),
+                self.embedding
+            ).view(graph_size, batch_size, -1)
+            return embedded_inputs
+
+        return sample_many(
+            lambda input: self._inner(input_embedding(input, self.embedding)),  # Need to unpack tuple into arguments
+            lambda input, pi: self.problem.get_costs(input, pi),  # Don't need embeddings as input to get_costs
+            input,
+            batch_rep, iter_rep
+        )
