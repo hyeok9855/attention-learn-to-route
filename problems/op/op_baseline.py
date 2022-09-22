@@ -236,7 +236,7 @@ def solve_ortools(directory, name, depot, loc, prize, max_length, sec_local_sear
 
 
 def run_all_tsiligirides(
-        dataset_path, sample, num_samples, eval_batch_size, max_calc_batch_size, no_cuda=False, dataset_n=None,
+        dataset_path, sample, num_samples, eval_batch_size, max_calc_batch_size, no_cuda=False, gpu_id=0, dataset_n=None,
         progress_bar_mininterval=0.1, seed=1234):
     import torch
     from torch.utils.data import DataLoader
@@ -249,7 +249,7 @@ def run_all_tsiligirides(
         OP.make_dataset(filename=dataset_path, num_samples=dataset_n if dataset_n is not None else 1000000),
         batch_size=eval_batch_size
     )
-    device = torch.device("cuda:0" if torch.cuda.is_available() and not no_cuda else "cpu")
+    device = torch.device(f"cuda:{gpu_id}" if torch.cuda.is_available() and not no_cuda else "cpu")
     results = []
     for batch in tqdm(dataloader, mininterval=progress_bar_mininterval):
         start = time.time()
@@ -283,6 +283,7 @@ if __name__ == "__main__":
     parser.add_argument("-f", action='store_true', help="Set true to overwrite")
     parser.add_argument("-o", default=None, help="Name of the results file to write")
     parser.add_argument("--cpus", type=int, help="Number of CPUs to use, defaults to all cores")
+    parser.add_argument('--gpu_id', type=int, default=0, help="Cuda gpu id")
     parser.add_argument('--no_cuda', action='store_true', help='Disable CUDA (only for Tsiligirides)')
     parser.add_argument('--disable_cache', action='store_true', help='Disable caching')
     parser.add_argument('--max_calc_batch_size', type=int, default=1000, help='Size for subbatches')
@@ -335,7 +336,7 @@ if __name__ == "__main__":
             eval_batch_size = max(1, opts.max_calc_batch_size // num_samples)
 
             results, parallelism = run_all_tsiligirides(
-                dataset_path, sample, num_samples, eval_batch_size, opts.max_calc_batch_size, opts.no_cuda, opts.n,
+                dataset_path, sample, num_samples, eval_batch_size, opts.max_calc_batch_size, opts.no_cuda, opts.gpu_id, opts.n,
                 opts.progress_bar_mininterval
             )
         elif method in ("compass", "opga", "gurobi", "gurobigap", "gurobit", "ortools"):

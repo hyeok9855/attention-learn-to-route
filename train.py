@@ -100,7 +100,11 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_dataset, pr
     epoch_duration = time.time() - start_time
     print("Finished epoch {}, took {} s".format(epoch, time.strftime('%H:%M:%S', time.gmtime(epoch_duration))))
 
-    if (opts.checkpoint_epochs != 0 and epoch % opts.checkpoint_epochs == 0) or epoch == opts.n_epochs - 1:
+    if (
+        (opts.checkpoint_epochs != 0 and epoch % opts.checkpoint_epochs == 0)
+        or (opts.save_all_ckpt_from is not None and epoch >= opts.save_all_ckpt_from)
+        or (epoch == opts.n_epochs - 1)
+    ):
         print('Saving model and state...')
         torch.save(
             {

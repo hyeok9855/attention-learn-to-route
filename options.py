@@ -37,6 +37,8 @@ def get_options(args=None):
     parser.add_argument('--seed', type=int, default=1234, help='Random seed to use')
     parser.add_argument('--max_grad_norm', type=float, default=1.0,
                         help='Maximum L2 norm for gradient clipping, default 1.0 (0 to disable clipping)')
+    parser.add_argument('--gpu_ids', type=int, nargs='*', default=None,
+                        help="Cuda gpu ids. Pass multiple ids for multi-gpu running")
     parser.add_argument('--no_cuda', action='store_true', help='Disable CUDA')
     parser.add_argument('--exp_beta', type=float, default=0.8,
                         help='Exponential moving average baseline decay (default 0.8)')
@@ -66,6 +68,8 @@ def get_options(args=None):
                         help='Start at epoch # (relevant for learning rate decay)')
     parser.add_argument('--checkpoint_epochs', type=int, default=1,
                         help='Save checkpoint every n epochs (default 1), 0 to save no checkpoints')
+    parser.add_argument('--save_all_ckpt_from', type=int, default=None,
+                        help='Save all checkpoints if epoch number is larger than this value.')
     parser.add_argument('--load_path', help='Path to load model parameters and optimizer state from')
     parser.add_argument('--resume', help='Resume from previous checkpoint file')
     parser.add_argument('--no_tensorboard', action='store_true', help='Disable logging TensorBoard files')
@@ -74,6 +78,12 @@ def get_options(args=None):
     opts = parser.parse_args(args)
 
     opts.use_cuda = torch.cuda.is_available() and not opts.no_cuda
+    if opts.use_cuda:
+        if not opts.gpu_ids:
+            opts.gpu_ids = [0]  # if gpu_id is not specified, use a single gpu:0
+        else:
+            opts.gpu_ids = [_i for _i in range(torch.cuda.device_count()) if _i in opts.gpu_ids]
+
     opts.run_name = "{}_{}".format(opts.run_name, time.strftime("%Y%m%dT%H%M%S"))
     opts.save_dir = os.path.join(
         opts.output_dir,

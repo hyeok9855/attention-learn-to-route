@@ -65,7 +65,7 @@ def eval_dataset(dataset_path, width, softmax_temp, opts):
             )))
 
     else:
-        device = torch.device("cuda:0" if use_cuda else "cpu")
+        device = torch.device(f"cuda:{opts.gpu_id}" if use_cuda else "cpu")
         dataset = model.problem.make_dataset(filename=dataset_path, num_samples=opts.val_size, offset=opts.offset)
         results = _eval_dataset(model, dataset, width, softmax_temp, opts, device)
 
@@ -196,6 +196,7 @@ if __name__ == "__main__":
     parser.add_argument('--softmax_temperature', type=parse_softmax_temperature, default=1,
                         help="Softmax temperature (sampling or bs)")
     parser.add_argument('--model', type=str)
+    parser.add_argument('--gpu_id', type=int, default=0, help="Cuda gpu id")
     parser.add_argument('--no_cuda', action='store_true', help='Disable CUDA')
     parser.add_argument('--no_progress_bar', action='store_true', help='Disable progress bar')
     parser.add_argument('--compress_mask', action='store_true', help='Compress mask into long')

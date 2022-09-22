@@ -36,7 +36,7 @@ def run(opts):
         json.dump(vars(opts), f, indent=True)
 
     # Set the device
-    opts.device = torch.device("cuda:0" if opts.use_cuda else "cpu")
+    opts.device = torch.device(f"cuda:{opts.gpu_ids[0]}" if opts.use_cuda else "cpu")
 
     # Figure out what's the problem
     problem = load_problem(opts.problem)
@@ -69,7 +69,7 @@ def run(opts):
     ).to(opts.device)
 
     if opts.use_cuda and torch.cuda.device_count() > 1:
-        model = torch.nn.DataParallel(model)
+        model = torch.nn.DataParallel(model, device_ids=opts.gpu_ids)
 
     # Overwrite model parameters by parameters to load
     model_ = get_inner_model(model)
