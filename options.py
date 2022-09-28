@@ -58,6 +58,7 @@ def get_options(args=None):
                              ' to save memory (default None means no shrinking)')
     parser.add_argument('--data_distribution', type=str, default=None,
                         help='Data distribution to use during training, defaults and options depend on problem.')
+    parser.add_argument('--layer_norm', action='store_true', help='Use layer norm for training')
 
     # Misc
     parser.add_argument('--log_step', type=int, default=50, help='Log info every log_step steps')

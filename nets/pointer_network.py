@@ -1,18 +1,152 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.autograd import Variable
 import math
 import numpy as np
 from utils.functions import sample_many
 
+from typing import Optional, Tuple
+
+
+class LayerNormLSTMCell(nn.Module):
+    """
+    ## Long Short-Term Memory Cell
+    LSTM Cell computes $c$, and $h$. $c$ is like the long-term memory,
+    and $h$ is like the short term memory.
+    We use the input $x$ and $h$ to update the long term memory.
+    In the update, some features of $c$ are cleared with a forget gate $f$,
+    and some features $i$ are added through a gate $g$.
+    The new short term memory is the $\tanh$ of the long-term memory
+    multiplied by the output gate $o$.
+    Note that the cell doesn't look at long term memory $c$ when doing the update. It only modifies it.
+    Also $c$ never goes through a linear transformation.
+    This is what solves vanishing and exploding gradients.
+    Here's the update rule.
+    \begin{align}
+    c_t &= \sigma(f_t) \odot c_{t-1} + \sigma(i_t) \odot \tanh(g_t) \\
+    h_t &= \sigma(o_t) \odot \tanh(c_t)
+    \end{align}
+    $\odot$ stands for element-wise multiplication.
+    Intermediate values and gates are computed as linear transformations of the hidden
+    state and input.
+    \begin{align}
+    i_t &= lin_x^i(x_t) + lin_h^i(h_{t-1}) \\
+    f_t &= lin_x^f(x_t) + lin_h^f(h_{t-1}) \\
+    g_t &= lin_x^g(x_t) + lin_h^g(h_{t-1}) \\
+    o_t &= lin_x^o(x_t) + lin_h^o(h_{t-1})
+    \end{align}
+    """
+
+    def __init__(self, input_size: int, hidden_size: int):
+        super().__init__()
+
+        # These are the linear layer to transform the `input` and `hidden` vectors.
+        # One of them doesn't need a bias since we add the transformations.
+
+        # This combines $lin_x^i$, $lin_x^f$, $lin_x^g$, and $lin_x^o$ transformations.
+        self.hidden_lin = nn.Linear(hidden_size, 4 * hidden_size)
+        # This combines $lin_h^i$, $lin_h^f$, $lin_h^g$, and $lin_h^o$ transformations.
+        self.input_lin = nn.Linear(input_size, 4 * hidden_size, bias=False)
+
+        # Whether to apply layer normalizations.
+        #
+        # Applying layer normalization gives better results.
+        # $i$, $f$, $g$ and $o$ embeddings are normalized and $c_t$ is normalized in
+        # $h_t = o_t \odot \tanh(\mathop{LN}(c_t))$
+        self.layer_norm = nn.ModuleList([nn.LayerNorm(hidden_size) for _ in range(4)])
+        self.layer_norm_c = nn.LayerNorm(hidden_size)
+
+    def forward(self, x: torch.Tensor, h: torch.Tensor, c: torch.Tensor):
+        # We compute the linear transformations for $i_t$, $f_t$, $g_t$ and $o_t$
+        # using the same linear layers.
+        ifgo = self.hidden_lin(h) + self.input_lin(x)
+        # Each layer produces an output of 4 times the `hidden_size` and we split them
+        ifgo = ifgo.chunk(4, dim=-1)
+
+        # Apply layer normalization (not in original paper, but gives better results)
+        ifgo = [self.layer_norm[i](ifgo[i]) for i in range(4)]
+
+        # $$i_t, f_t, g_t, o_t$$
+        i, f, g, o = ifgo
+
+        # $$c_t = \sigma(f_t) \odot c_{t-1} + \sigma(i_t) \odot \tanh(g_t) $$
+        c_next = torch.sigmoid(f) * c + torch.sigmoid(i) * torch.tanh(g)
+
+        # $$h_t = \sigma(o_t) \odot \tanh(c_t)$$
+        # Optionally, apply layer norm to $c_t$
+        h_next = torch.sigmoid(o) * torch.tanh(self.layer_norm_c(c_next))
+
+        return h_next, c_next
+
+
+class LayerNormLSTM(nn.Module):
+    """
+    ## Multilayer LSTM
+    """
+
+    def __init__(self, input_size: int, hidden_size: int, n_layers: int = 1):
+        """
+        Create a network of `n_layers` of LSTM.
+        """
+
+        super().__init__()
+        self.n_layers = n_layers
+        self.hidden_size = hidden_size
+        # Create cells for each layer. Note that only the first layer gets the input directly.
+        # Rest of the layers get the input from the layer below
+        self.cells = nn.ModuleList([LayerNormLSTMCell(input_size, hidden_size)] +
+                                   [LayerNormLSTMCell(hidden_size, hidden_size) for _ in range(n_layers - 1)])
+
+    def forward(self, x: torch.Tensor, state: Optional[Tuple[torch.Tensor, torch.Tensor]] = None):
+        """
+        `x` has shape `[n_steps, batch_size, input_size]` and
+        `state` is a tuple of $h$ and $c$, each with a shape of `[batch_size, hidden_size]`.
+        """
+        n_steps, batch_size = x.shape[:2]
+
+        # Initialize the state if `None`
+        if state is None:
+            h = [x.new_zeros(batch_size, self.hidden_size) for _ in range(self.n_layers)]
+            c = [x.new_zeros(batch_size, self.hidden_size) for _ in range(self.n_layers)]
+        else:
+            (h, c) = state
+            # Reverse stack the tensors to get the states of each layer
+            #
+            # 📝 You can just work with the tensor itself but this is easier to debug
+            h, c = list(torch.unbind(h)), list(torch.unbind(c))
+
+        # Array to collect the outputs of the final layer at each time step.
+        out = []
+        for t in range(n_steps):
+            # Input to the first layer is the input itself
+            inp = x[t]
+            # Loop through the layers
+            for layer in range(self.n_layers):
+                # Get the state of the layer
+                h[layer], c[layer] = self.cells[layer](inp, h[layer], c[layer])
+                # Input to the next layer is the state of this layer
+                inp = h[layer]
+            # Collect the output $h$ of the final layer
+            out.append(h[-1])
+
+        # Stack the outputs and states
+        out = torch.stack(out)
+        h = torch.stack(h)
+        c = torch.stack(c)
+
+        return out, (h, c)
+
 
 class Encoder(nn.Module):
     """Maps a graph represented as an input sequence
     to a hidden vector"""
-    def __init__(self, input_dim, hidden_dim):
+    def __init__(self, input_dim, hidden_dim, layer_norm=False):
         super(Encoder, self).__init__()
         self.hidden_dim = hidden_dim
-        self.lstm = nn.LSTM(input_dim, hidden_dim)
+        self.lstm = (
+            LayerNormLSTM(input_dim, hidden_dim) if layer_norm else nn.LSTM(input_dim, hidden_dim)
+        )
         self.init_hx, self.init_cx = self.init_hidden(hidden_dim)
 
     def forward(self, x, hidden):
@@ -32,7 +166,7 @@ class Encoder(nn.Module):
 
 class Attention(nn.Module):
     """A generic attention module for a decoder in seq2seq"""
-    def __init__(self, dim, use_tanh=False, C=10):
+    def __init__(self, dim, use_tanh=False, C=10, layer_norm=False):
         super(Attention, self).__init__()
         self.use_tanh = use_tanh
         self.project_query = nn.Linear(dim, dim)
@@ -42,6 +176,11 @@ class Attention(nn.Module):
 
         self.v = nn.Parameter(torch.FloatTensor(dim))
         self.v.data.uniform_(-(1. / math.sqrt(dim)), 1. / math.sqrt(dim))
+
+        self.layer_norm = layer_norm
+        if self.layer_norm:
+            self.ln_q = nn.LayerNorm(dim)
+            self.ln_r = nn.LayerNorm(dim)
         
     def forward(self, query, ref):
         """
@@ -53,8 +192,15 @@ class Attention(nn.Module):
         """
         # ref is now [batch_size x hidden_dim x sourceL]
         ref = ref.permute(1, 2, 0)
-        q = self.project_query(query).unsqueeze(2)  # batch x dim x 1
-        e = self.project_ref(ref)  # batch_size x hidden_dim x sourceL 
+        q = self.project_query(query)
+        e = self.project_ref(ref)  # batch_size x hidden_dim x sourceL
+
+        if self.layer_norm:
+            q = self.ln_q(q)
+            e = self.ln_r(e.permute(2, 0, 1)).permute(1, 2, 0)
+
+        q = q.unsqueeze(2)  # batch x dim x 1
+
         # expand the query by sourceL
         # batch x dim x sourceL
         expanded_q = q.repeat(1, 1, e.size(2)) 
@@ -78,7 +224,9 @@ class Decoder(nn.Module):
             use_tanh,
             n_glimpses=1,
             mask_glimpses=True,
-            mask_logits=True):
+            mask_logits=True,
+            layer_norm=False,
+        ):
         super(Decoder, self).__init__()
 
         self.embedding_dim = embedding_dim
@@ -91,8 +239,8 @@ class Decoder(nn.Module):
         self.decode_type = None  # Needs to be set explicitly before use
 
         self.lstm = nn.LSTMCell(embedding_dim, hidden_dim)
-        self.pointer = Attention(hidden_dim, use_tanh=use_tanh, C=tanh_exploration)
-        self.glimpse = Attention(hidden_dim, use_tanh=False)
+        self.pointer = Attention(hidden_dim, use_tanh=use_tanh, C=tanh_exploration, layer_norm=layer_norm)
+        self.glimpse = Attention(hidden_dim, use_tanh=False, layer_norm=layer_norm)
         self.sm = nn.Softmax(dim=1)
 
     def update_mask(self, mask, selected):
@@ -261,6 +409,7 @@ class PointerNetwork(nn.Module):
                  mask_logits=True,
                  normalization=None,
                  imitation=False,
+                 layer_norm=False,
                  **kwargs):
         super(PointerNetwork, self).__init__()
 
@@ -270,7 +419,9 @@ class PointerNetwork(nn.Module):
 
         self.encoder = Encoder(
             embedding_dim,
-            hidden_dim)
+            hidden_dim,
+            layer_norm=layer_norm,
+        )
 
         self.decoder = Decoder(
             embedding_dim,
@@ -279,7 +430,8 @@ class PointerNetwork(nn.Module):
             use_tanh=tanh_clipping > 0,
             n_glimpses=1,
             mask_glimpses=mask_inner,
-            mask_logits=mask_logits
+            mask_logits=mask_logits,
+            layer_norm=layer_norm,
         )
 
         # Trainable initial hidden states
