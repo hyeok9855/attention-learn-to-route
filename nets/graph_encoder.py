@@ -54,7 +54,6 @@ class MultiHeadAttention(nn.Module):
 
     def forward(self, q, h=None, mask=None):
         """
-
         :param q: queries (batch_size, n_query, input_dim)
         :param h: data (batch_size, graph_size, input_dim)
         :param mask: mask (batch_size, n_query, graph_size) or viewable as that (i.e. can be 2 dim if n_query == 1)
@@ -84,7 +83,7 @@ class MultiHeadAttention(nn.Module):
         K = torch.matmul(hflat, self.W_key).view(shp)
         V = torch.matmul(hflat, self.W_val).view(shp)
 
-        # Calculate compatibility (n_heads, batch_size, n_query, graph_size)
+        # Calculate compatibility (n_heads, batch_size, graph_size, n_query)
         compatibility = self.norm_factor * torch.matmul(Q, K.transpose(2, 3))
 
         # Optionally apply mask to prevent attention
@@ -126,26 +125,30 @@ class Normalization(nn.Module):
 
         normalizer_class = {
             'batch': nn.BatchNorm1d,
-            'instance': nn.InstanceNorm1d
+            'instance': nn.InstanceNorm1d,
+            'layer': nn.LayerNorm,
         }.get(normalization, None)
 
-        self.normalizer = normalizer_class(embed_dim, affine=True)
+        if normalization == "layer":
+            self.normalizer = normalizer_class(embed_dim)
+        else:
+            self.normalizer = normalizer_class(embed_dim, affine=True)
 
         # Normalization by default initializes affine parameters with bias 0 and weight unif(0,1) which is too large!
         # self.init_parameters()
 
     def init_parameters(self):
-
         for name, param in self.named_parameters():
             stdv = 1. / math.sqrt(param.size(-1))
             param.data.uniform_(-stdv, stdv)
 
     def forward(self, input):
-
         if isinstance(self.normalizer, nn.BatchNorm1d):
             return self.normalizer(input.view(-1, input.size(-1))).view(*input.size())
         elif isinstance(self.normalizer, nn.InstanceNorm1d):
             return self.normalizer(input.permute(0, 2, 1)).permute(0, 2, 1)
+        elif isinstance(self.normalizer, nn.LayerNorm):
+            return self.normalizer(input)
         else:
             assert self.normalizer is None, "Unknown normalizer type"
             return input

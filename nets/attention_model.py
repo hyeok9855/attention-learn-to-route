@@ -52,7 +52,9 @@ class AttentionModel(nn.Module):
                  normalization='batch',
                  n_heads=8,
                  checkpoint_encoder=False,
-                 shrink_size=None):
+                 shrink_size=None,
+                 imitation=False,
+        ):
         super(AttentionModel, self).__init__()
 
         self.embedding_dim = embedding_dim
@@ -74,6 +76,8 @@ class AttentionModel(nn.Module):
         self.n_heads = n_heads
         self.checkpoint_encoder = checkpoint_encoder
         self.shrink_size = shrink_size
+
+        self.imitation = imitation
 
         # Problem specific context parameters (placeholder and step context dimension)
         if self.is_vrp or self.is_orienteering or self.is_pctsp:
@@ -121,20 +125,25 @@ class AttentionModel(nn.Module):
         if temp is not None:  # Do not change temperature if not provided
             self.temp = temp
 
-    def forward(self, input, return_pi=False):
+    def forward(self, input, pi_expert=None, return_pi=False):
         """
         :param input: (batch_size, graph_size, node_dim) input node features or dictionary with multiple tensors
         :param return_pi: whether to return the output sequences, this is optional as it is not compatible with
         using DataParallel as the results may be of different lengths on different GPUs
         :return:
         """
+        if self.imitation:
+            if self.training:
+                assert pi_expert is not None, "To train model in imitation manner, pi_expert is required"
+            else:
+                assert pi_expert is None, "For evaluation, pi_expert will not be used!"
 
         if self.checkpoint_encoder and self.training:  # Only checkpoint if we need gradients
             embeddings, _ = checkpoint(self.embedder, self._init_embed(input))
         else:
             embeddings, _ = self.embedder(self._init_embed(input))
 
-        _log_p, pi = self._inner(input, embeddings)
+        _log_p, pi = self._inner(input, embeddings, pi_expert)  # pi == pi_expert for imitation learning training
 
         cost, mask = self.problem.get_costs(input, pi)
         # Log likelyhood is calculated within the model since returning it per action does not work well with
@@ -221,7 +230,7 @@ class AttentionModel(nn.Module):
         # TSP
         return self.init_embed(input)
 
-    def _inner(self, input, embeddings):
+    def _inner(self, input, embeddings, pi_expert=None):
 
         outputs = []
         sequences = []
@@ -252,7 +261,10 @@ class AttentionModel(nn.Module):
             log_p, mask = self._get_log_p(fixed, state)
 
             # Select the indices of the next nodes in the sequences, result (batch_size) long
-            selected = self._select_node(log_p.exp()[:, 0, :], mask[:, 0, :])  # Squeeze out steps dimension
+            if pi_expert is None:
+                selected = self._select_node(log_p.exp()[:, 0, :], mask[:, 0, :])  # Squeeze out steps dimension
+            else:
+                selected = pi_expert[:, i]
 
             state = state.update(selected)
 
