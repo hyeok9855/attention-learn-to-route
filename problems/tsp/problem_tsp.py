@@ -25,6 +25,10 @@ class TSP(object):
         return (d[:, 1:] - d[:, :-1]).norm(p=2, dim=2).sum(1) + (d[:, 0] - d[:, -1]).norm(p=2, dim=1), None
 
     @staticmethod
+    def build_training_dataset(opts, *args, **kwargs):
+        return TSPDatasetIL(opts, *args, **kwargs)
+
+    @staticmethod
     def make_dataset(*args, **kwargs):
         return TSPDataset(*args, **kwargs)
 
@@ -57,7 +61,6 @@ class TSPDataset(Dataset):
     def __init__(self, filename=None, size=50, num_samples=1000000, offset=0, distribution=None):
         super(TSPDataset, self).__init__()
 
-        self.data_set = []
         if filename is not None:
             assert os.path.splitext(filename)[1] == '.pkl'
 
@@ -67,6 +70,33 @@ class TSPDataset(Dataset):
         else:
             # Sample points randomly in [0, 1] square
             self.data = [torch.FloatTensor(size, 2).uniform_(0, 1) for i in range(num_samples)]
+
+        self.size = len(self.data)
+
+    def __len__(self):
+        return self.size
+
+    def __getitem__(self, idx):
+        return self.data[idx]
+
+
+class TSPDatasetIL(Dataset):
+    def __init__(self, opts):
+        super().__init__()
+
+        with open(opts.train_instances, "rb") as _f:
+            train_instances = pickle.load(_f)
+        with open(opts.expert_results, "rb") as _f:
+            expert_results = pickle.load(_f)[0]
+
+        if opts.dataset_n:
+            train_instances = train_instances[:opts.dataset_n]
+            expert_results = expert_results[:opts.dataset_n]
+
+        self.data = [
+            (torch.FloatTensor(_input), torch.LongTensor(_res[1]))
+            for _input, _res in zip(train_instances, expert_results)
+        ]
 
         self.size = len(self.data)
 

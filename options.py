@@ -75,6 +75,11 @@ def get_options(args=None):
     parser.add_argument('--no_tensorboard', action='store_true', help='Disable logging TensorBoard files')
     parser.add_argument('--no_progress_bar', action='store_true', help='Disable progress bar')
 
+    # Imitation Learning
+    parser.add_argument('--train_instances', type=str, default=None, help='Data instances for training dataset')
+    parser.add_argument('--expert_results', type=str, default=None, help="Expert's (solver) results for the train instances")
+    parser.add_argument('--dataset_n', type=int, default=None, help="Use only specific number of samples from training set")
+
     opts = parser.parse_args(args)
 
     opts.use_cuda = torch.cuda.is_available() and not opts.no_cuda

@@ -146,7 +146,7 @@ class Decoder(nn.Module):
 
         return logits, h_out
 
-    def forward(self, decoder_input, embedded_inputs, hidden, context, eval_tours=None):
+    def forward(self, decoder_input, embedded_inputs, hidden, context, pi_expert=None):
         """
         Args:
             decoder_input: The initial input to the decoder
@@ -163,18 +163,14 @@ class Decoder(nn.Module):
         steps = range(embedded_inputs.size(0))
         idxs = None
         mask = Variable(
-            embedded_inputs.data.new().byte().new(embedded_inputs.size(1), embedded_inputs.size(0)).zero_(),
+            embedded_inputs.data.new(embedded_inputs.size(1), embedded_inputs.size(0)).byte().zero_(),
             requires_grad=False
         )
 
         for i in steps:
             hidden, log_p, probs, mask = self.recurrence(decoder_input, hidden, mask, idxs, i, context)
             # select the next inputs for the decoder [batch_size x hidden_dim]
-            idxs = self.decode(
-                probs,
-                mask
-            ) if eval_tours is None else eval_tours[:, i]
-
+            idxs = self.decode(probs, mask) if pi_expert is None else pi_expert[:, i]
             idxs = idxs.detach()  # Otherwise pytorch complains it want's a reward, todo implement this more properly?
 
             # Gather input embedding of selected
@@ -187,6 +183,7 @@ class Decoder(nn.Module):
             # use outs to point to next object
             outputs.append(log_p)
             selections.append(idxs)
+
         return (torch.stack(outputs, 1), torch.stack(selections, 1)), hidden
 
     def decode(self, probs, mask):
@@ -263,6 +260,7 @@ class PointerNetwork(nn.Module):
                  mask_inner=True,
                  mask_logits=True,
                  normalization=None,
+                 imitation=False,
                  **kwargs):
         super(PointerNetwork, self).__init__()
 
@@ -292,10 +290,18 @@ class PointerNetwork(nn.Module):
         self.embedding = nn.Parameter(torch.FloatTensor(self.input_dim, embedding_dim))
         self.embedding.data.uniform_(-std, std)
 
+        self.imitation = imitation
+
     def set_decode_type(self, decode_type, temp=None):
         self.decoder.decode_type = decode_type
 
-    def forward(self, inputs, eval_tours=None, return_pi=False):
+    def forward(self, inputs, pi_expert=None, return_pi=False):
+        if self.imitation:
+            if self.training:
+                assert pi_expert is not None, "To train model in imitation manner, pi_expert is required"
+            else:
+                assert pi_expert is None, "For evaluation, pi_expert will not be used!"
+
         batch_size, graph_size, input_dim = inputs.size()
 
         embedded_inputs = torch.mm(
@@ -305,12 +311,13 @@ class PointerNetwork(nn.Module):
 
         # query the actor net for the input indices 
         # making up the output, and the pointer attn 
-        _log_p, pi = self._inner(embedded_inputs, eval_tours)
+        _log_p, pi = self._inner(embedded_inputs, pi_expert)  # pi == pi_expert for imitation learning training
 
         cost, mask = self.problem.get_costs(inputs, pi)
         # Log likelyhood is calculated within the model since returning it per action does not work well with
         # DataParallel since sequences can be of different lengths
         ll = self._calc_log_likelihood(_log_p, pi, mask)
+
         if return_pi:
             return cost, ll, pi
 
@@ -330,7 +337,7 @@ class PointerNetwork(nn.Module):
         # Calculate log_likelihood
         return log_p.sum(1)
 
-    def _inner(self, inputs, eval_tours=None):
+    def _inner(self, inputs, pi_expert=None):
 
         encoder_hx = encoder_cx = Variable(
             torch.zeros(1, inputs.size(1), self.encoder.hidden_dim, out=inputs.data.new()),
@@ -349,7 +356,7 @@ class PointerNetwork(nn.Module):
                                                                  inputs,
                                                                  dec_init_state,
                                                                  enc_h,
-                                                                 eval_tours)
+                                                                 pi_expert)
 
         return pointer_probs, input_idxs
     
