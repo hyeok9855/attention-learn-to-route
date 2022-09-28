@@ -409,7 +409,6 @@ class PointerNetwork(nn.Module):
                  mask_logits=True,
                  normalization=None,
                  imitation=False,
-                 layer_norm=False,
                  **kwargs):
         super(PointerNetwork, self).__init__()
 
@@ -417,10 +416,12 @@ class PointerNetwork(nn.Module):
         assert problem.NAME == "tsp", "Pointer Network only supported for TSP"
         self.input_dim = 2
 
+        self.layer_norm = normalization == 'layer'
+
         self.encoder = Encoder(
             embedding_dim,
             hidden_dim,
-            layer_norm=layer_norm,
+            layer_norm=self.layer_norm,
         )
 
         self.decoder = Decoder(
@@ -431,7 +432,7 @@ class PointerNetwork(nn.Module):
             n_glimpses=1,
             mask_glimpses=mask_inner,
             mask_logits=mask_logits,
-            layer_norm=layer_norm,
+            layer_norm=self.layer_norm,
         )
 
         # Trainable initial hidden states
