@@ -166,7 +166,7 @@ class Encoder(nn.Module):
 
 class Attention(nn.Module):
     """A generic attention module for a decoder in seq2seq"""
-    def __init__(self, dim, use_tanh=False, C=10, layer_norm=False):
+    def __init__(self, dim, use_tanh=False, C=10):
         super(Attention, self).__init__()
         self.use_tanh = use_tanh
         self.project_query = nn.Linear(dim, dim)
@@ -176,11 +176,6 @@ class Attention(nn.Module):
 
         self.v = nn.Parameter(torch.FloatTensor(dim))
         self.v.data.uniform_(-(1. / math.sqrt(dim)), 1. / math.sqrt(dim))
-
-        self.layer_norm = layer_norm
-        if self.layer_norm:
-            self.ln_q = nn.LayerNorm(dim)
-            self.ln_r = nn.LayerNorm(dim)
         
     def forward(self, query, ref):
         """
@@ -192,14 +187,8 @@ class Attention(nn.Module):
         """
         # ref is now [batch_size x hidden_dim x sourceL]
         ref = ref.permute(1, 2, 0)
-        q = self.project_query(query)
+        q = self.project_query(query).unsqueeze(2)
         e = self.project_ref(ref)  # batch_size x hidden_dim x sourceL
-
-        if self.layer_norm:
-            q = self.ln_q(q)
-            e = self.ln_r(e.permute(2, 0, 1)).permute(1, 2, 0)
-
-        q = q.unsqueeze(2)  # batch x dim x 1
 
         # expand the query by sourceL
         # batch x dim x sourceL
@@ -225,7 +214,6 @@ class Decoder(nn.Module):
             n_glimpses=1,
             mask_glimpses=True,
             mask_logits=True,
-            layer_norm=False,
         ):
         super(Decoder, self).__init__()
 
@@ -239,8 +227,8 @@ class Decoder(nn.Module):
         self.decode_type = None  # Needs to be set explicitly before use
 
         self.lstm = nn.LSTMCell(embedding_dim, hidden_dim)
-        self.pointer = Attention(hidden_dim, use_tanh=use_tanh, C=tanh_exploration, layer_norm=layer_norm)
-        self.glimpse = Attention(hidden_dim, use_tanh=False, layer_norm=layer_norm)
+        self.pointer = Attention(hidden_dim, use_tanh=use_tanh, C=tanh_exploration)
+        self.glimpse = Attention(hidden_dim, use_tanh=False)
         self.sm = nn.Softmax(dim=1)
 
     def update_mask(self, mask, selected):
@@ -432,7 +420,6 @@ class PointerNetwork(nn.Module):
             n_glimpses=1,
             mask_glimpses=mask_inner,
             mask_logits=mask_logits,
-            layer_norm=self.layer_norm,
         )
 
         # Trainable initial hidden states
