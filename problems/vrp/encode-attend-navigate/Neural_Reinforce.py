@@ -11,7 +11,10 @@ import tensorflow as tf
 distr = tf.contrib.distributions
 
 import numpy as np
-from tqdm import tqdm
+from functools import partial
+from tqdm import tqdm as _tqdm
+tqdm = partial(_tqdm, dynamic_ncols=True)
+
 import os
 import matplotlib.pyplot as plt
 

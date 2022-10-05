@@ -8,8 +8,11 @@ import tempfile
 import time
 from datetime import timedelta
 from problems.op.opga.opevo import run_alg as run_opga_alg
-from tqdm import tqdm
+from functools import partial
+from tqdm import tqdm as _tqdm
 import re
+
+tqdm = partial(_tqdm, dynamic_ncols=True)
 
 MAX_LENGTH_TOL = 1e-5
 

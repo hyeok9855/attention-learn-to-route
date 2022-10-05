@@ -9,8 +9,11 @@ from utils.data_utils import check_extension, load_dataset, save_dataset
 from subprocess import check_call, check_output, CalledProcessError
 from problems.vrp.vrp_baseline import get_lkh_executable
 import torch
-from tqdm import tqdm
+from functools import partial
+from tqdm import tqdm as _tqdm
 import re
+
+tqdm = partial(_tqdm, dynamic_ncols=True)
 
 
 def solve_gurobi(directory, name, loc, disable_cache=False, timeout=None, gap=None):

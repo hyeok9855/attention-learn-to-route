@@ -4,14 +4,17 @@ import os
 import argparse
 import numpy as np
 import itertools
-from tqdm import tqdm
+from functools import partial
+from tqdm import tqdm as _tqdm
 from utils import load_model, move_to
 from utils.data_utils import save_dataset
 from torch.utils.data import DataLoader
 import time
 from datetime import timedelta
 from utils.functions import parse_softmax_temperature
+
 mp = torch.multiprocessing.get_context('spawn')
+tqdm = partial(_tqdm, dynamic_ncols=True)
 
 
 def get_best(sequences, cost, ids=None, batch_size=None):
@@ -186,8 +189,6 @@ if __name__ == "__main__":
                         help='Offset where to start in dataset (default 0)')
     parser.add_argument('--eval_batch_size', type=int, default=1024,
                         help="Batch size to use during (baseline) evaluation")
-    # parser.add_argument('--decode_type', type=str, default='greedy',
-    #                     help='Decode type, greedy or sampling')
     parser.add_argument('--width', type=int, nargs='+',
                         help='Sizes of beam to use for beam search (or number of samples for sampling), '
                              '0 to disable (default), -1 for infinite')

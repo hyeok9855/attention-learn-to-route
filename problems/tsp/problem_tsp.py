@@ -89,9 +89,12 @@ class TSPDatasetIL(Dataset):
         with open(opts.expert_results, "rb") as _f:
             expert_results = pickle.load(_f)[0]
 
-        if opts.dataset_n:
-            train_instances = train_instances[:opts.dataset_n]
-            expert_results = expert_results[:opts.dataset_n]
+        dataset_n = opts.dataset_n if opts.dataset_n else min(len(train_instances), len(expert_results))
+
+        train_instances = train_instances[:dataset_n]
+        expert_results = expert_results[:dataset_n]
+
+        print(f"# of training samples: {dataset_n}")
 
         self.data = [
             (torch.FloatTensor(_input), torch.LongTensor(_res[1]))

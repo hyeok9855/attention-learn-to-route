@@ -1,6 +1,7 @@
 import os
 import time
-from tqdm import tqdm
+from functools import partial
+from tqdm import tqdm as _tqdm
 import torch
 import math
 
@@ -10,6 +11,8 @@ from torch.nn import DataParallel
 from nets.attention_model import set_decode_type
 from utils.log_utils import log_values
 from utils import move_to
+
+tqdm = partial(_tqdm, dynamic_ncols=True)
 
 
 def get_inner_model(model):

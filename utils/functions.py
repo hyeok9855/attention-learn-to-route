@@ -4,10 +4,13 @@ import torch
 import numpy as np
 import os
 import json
-from tqdm import tqdm
+from functools import partial
+from tqdm import tqdm as _tqdm
 from multiprocessing.dummy import Pool as ThreadPool
 from multiprocessing import Pool
 import torch.nn.functional as F
+
+tqdm = partial(_tqdm, dynamic_ncols=True)
 
 
 def load_problem(name):

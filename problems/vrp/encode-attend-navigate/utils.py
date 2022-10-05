@@ -2,7 +2,10 @@
 from __future__ import print_function
 import tensorflow as tf
 import numpy as np
-from tqdm import tqdm
+from functools import partial
+from tqdm import tqdm as _tqdm
+
+tqdm = partial(_tqdm, dynamic_ncols=True)
 
 
 # Embed input sequence [batch_size, seq_length, from_] -> [batch_size, seq_length, to_]
