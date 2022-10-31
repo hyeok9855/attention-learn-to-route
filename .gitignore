@@ -3,6 +3,7 @@ outputs/
 logs/
 results/
 *results/
+*results_hard/
 __pycache__/
 .idea
 */.ipynb_checkpoints

@@ -7,6 +7,37 @@ from utils.data_utils import check_extension, save_dataset
 def generate_tsp_data(dataset_size, tsp_size):
     return np.random.uniform(size=(dataset_size, tsp_size, 2)).tolist()
 
+def generate_tsp_multivariate_gaussian_data(dataset_size, tsp_size, n_gaussians):
+    return
+
+def generate_tsp_cluster_data(dataset_size, tsp_size, n_clusters):
+    assert n_clusters ** (1/2) % 1 == 0, "`n_clusters` must be perfect square number"
+    n_split = int(n_clusters ** (1/2))
+    cluster_size = tsp_size // n_clusters
+    remainder_size = tsp_size % n_clusters  # add to the first cluster
+
+    clusters = [
+        np.random.uniform(low=0.0, high=(1 / (2 * n_split)), size=(dataset_size, cluster_size, 2))
+        + np.array(
+            [
+                (row_i / n_split + row_i / (2 * n_split * (n_split - 1))),
+                (col_i / n_split + col_i / (2 * n_split * (n_split - 1))),
+            ]
+        )
+        for row_i in range(n_split) for col_i in range(n_split)
+    ] + [np.random.uniform(low=0.0, high=(1 / (2 * n_split)), size=(dataset_size, remainder_size, 2))]
+
+    return np.concatenate(clusters, axis=1).tolist()
+
+
+def generate_tsp_expansion_data(dataset_size, tsp_size):
+    expansion1 = np.random.uniform(low=0.0, high=0.25, size=(dataset_size, tsp_size // 2, 2))
+    expansion2 = (
+        np.random.uniform(low=0.0, high=0.25, size=(dataset_size, tsp_size // 2 + tsp_size % 2, 2))
+        + np.array([[[0.0, 0.75]]])
+    )
+    return np.concatenate([expansion1, expansion2], axis=1).tolist()
+
 
 def generate_vrp_data(dataset_size, vrp_size):
     CAPACITIES = {
@@ -109,6 +140,8 @@ if __name__ == "__main__":
                         help="Sizes of problem instances (default 20, 50, 100)")
     parser.add_argument("-f", action='store_true', help="Set true to overwrite")
     parser.add_argument('--seed', type=int, default=1234, help="Random seed")
+    parser.add_argument('--hard_mode', type=str, default=None, help="Choices: cluster, expansion")
+    parser.add_argument('--n_clusters', type=int, default=4, help="Number of clusters. Only used if hard_mode==cluster")
 
     opts = parser.parse_args()
 
@@ -117,6 +150,7 @@ if __name__ == "__main__":
 
     distributions_per_problem = {
         'tsp': [None],
+        'tsp_hard': [None],
         'vrp': [None],
         'pctsp': [None],
         'op': ['const', 'unif', 'dist']
@@ -139,10 +173,14 @@ if __name__ == "__main__":
                 os.makedirs(datadir, exist_ok=True)
 
                 if opts.filename is None:
-                    filename = os.path.join(datadir, "{}{}{}_{}_seed{}.pkl".format(
+                    filename = os.path.join(datadir, "{}{}{}_{}{}{}_seed{}.pkl".format(
                         problem,
                         "_{}".format(distribution) if distribution is not None else "",
-                        graph_size, opts.name, opts.seed))
+                        graph_size,
+                        opts.name,
+                        "_{}".format(opts.hard_mode) if opts.hard_mode is not None else "",
+                        opts.n_clusters if opts.hard_mode == "cluster" else "",
+                        opts.seed))
                 else:
                     filename = check_extension(opts.filename)
 
@@ -152,6 +190,13 @@ if __name__ == "__main__":
                 np.random.seed(opts.seed)
                 if problem == 'tsp':
                     dataset = generate_tsp_data(opts.dataset_size, graph_size)
+                elif problem == 'tsp_hard':
+                    if opts.hard_mode == "cluster":
+                        dataset = generate_tsp_cluster_data(opts.dataset_size, graph_size, opts.n_clusters)
+                    elif opts.hard_mode == "expansion":
+                        dataset = generate_tsp_expansion_data(opts.dataset_size, graph_size)
+                    else:
+                        assert False, "Wrong option for hard_mode!"
                 elif problem == 'vrp':
                     dataset = generate_vrp_data(
                         opts.dataset_size, graph_size)
